@@ -28,22 +28,26 @@ rm(list = ls())
 
 {
   popData <- read_csv("Pop_data.csv")
-  
+  names(popData)[1] <- "time"
   
   blib_raw <- bind_rows(lapply(list.files(pattern = "blib_sats*"), read.csv))
-
+  blib_raw <- distinct(blib_raw, name, .keep_all = TRUE)
+  blibPheno <- read_csv("Blib_genetics.csv")
+  blibPheno <- distinct(blibPheno, name, .keep_all = TRUE)
+  #blibPheno <- blibPheno%>%select(-sample_number)
   
  
  
- 
-  blib_raw <- blib_raw%>%select(time,name, sampleGroup, sample_number, testA, testB) 
-  
-  blib_raw$name <- as.numeric(gsub("blib",'',blib_raw$name))
-  
-  blib_raw <- blib_raw%>%arrange(sampleGroup)
+  blib_raw <- blib_raw%>%select(time,name, sampleGroup, sample_number, testA, testB)
   
   blib_unique <- distinct(blib_raw, name, .keep_all = TRUE)
   
+  
+  
+  blib_unique <- blib_unique%>%arrange(sampleGroup)
+  
+  
+  blib_unique <- blib_unique%>%filter(str_length(testA) == 4374 )%>%filter(str_length(testB) == 4374 )
   blib_unique$name <- paste0(
     blib_unique$sampleGroup, '_',blib_unique$sample_number,"_",blib_unique$name)
   
@@ -51,14 +55,14 @@ rm(list = ls())
   sum(duplicated(blib_unique$name))
   
   
-  blib_sample <- blib_unique%>%group_by(sampleGroup)%>%filter(n() >= 3)%>% slice_sample(n = 5)
+  blib_sample <- blib_unique%>%group_by(sampleGroup)%>%filter(n() >= 10)%>% slice_sample(n = 10)
   blib_sample$name <- paste0(
     blib_sample$sampleGroup, '_',blib_sample$sample_number)
   
   rm(blib_raw)
 }
 
-
+plot(blibPheno$generation,blibPheno$Heterozygosity)
 {
   sample_groups_vector <- blib_unique%>%select(sampleGroup)
   sample_groups_vector <- c(sample_groups_vector$sampleGroup)
@@ -73,6 +77,9 @@ rm(list = ls())
     blib_split_list_A[i] <- blib_split[[u]][1]
     blib_split_list_B[i] <- blib_split[[u]][1]
   }
+  
+blib_split_list_A <- blib_split_list_A[lapply(blib_split_list_A,length)>0]
+blib_split_list_B <- blib_split_list_B[lapply(blib_split_list_B,length)>0]
   AS <- ( lapply(blib_split_list_A, DNAStringSet))
   
   thebin <- lapply(AS, as.DNAbin)
@@ -81,44 +88,51 @@ rm(list = ls())
   nucdivs_df <- data.frame(time = seq(from = 50, to = 50*(length(nucdivs_vector)), by = 50),diversity = nucdivs_vector )
  # nucdivs_df <- nucdivs_df[1:nrow(nucdivs_df)-1,]
   
+  nucdivs_df <- merge(popData[,1:2], nucdivs_df,by = "time")
   nucdivs_df <- nucdivs_df%>%mutate(diversity_normalised = (diversity-min(diversity))/(max(diversity)-min(diversity)) )
   
-  nucdivs_df <- nucdivs_df%>%mutate(blibN = popData%>%select(blibN))
-  nucdivs_df$blibN <- nucdivs_df$blibN$blibN
+  #nucdivs_df <- nucdivs_df%>%mutate(blibN = popData%>%select(blibN))
+  #nucdivs_df$blibN <- nucdivs_df$blibN$blibN
   nucdivs_df <- nucdivs_df%>%mutate(blibN_normalised = (blibN-min(blibN))/(max(blibN)-min(blibN)))
   nucdivs_df <- tibble(nucdivs_df)
   nucdivs_g <- nucdivs_df%>%select(time,diversity_normalised,blibN_normalised)%>%gather(key = "variable", value = "value", -time)
   
   }
 
+blibPheno <- left_join(blibPheno,popData,by = "time")
+ggplot(blibPheno, aes(time,generation))+geom_point(alpha = 0.3)+geom_smooth()
+
+plot(blibPheno$time,blibPheno$generation)
+
+gtimemodel <- lm(generation~time, data = blibPheno)
+abline(gtimemodel, col = "red")
+
+
 plot(nucdivs_df$blibN,nucdivs_df$diversity);abline(lm(diversity~blibN, data = nucdivs_df), col = "red")
-plot(lm(diversity~blibN, data = nucdivs_df))
+#plot(lm(diversity~blibN, data = nucdivs_df))
+plot(nucdivs_df$time,nucdivs_df$diversity)
 
-ggplot(nucdivs_g,aes(x = time/(60*60), y = value, colour = variable))+geom_line()+geom_point( size = 0.1)
+ggplot(nucdivs_g,aes(x = time/(60), y = value, colour = variable))+geom_line()+geom_point( size = 0.3)
 
-ggplot(nucdivs_df,aes(x = time))+geom_smooth(aes(y = diversity))
+ggplot(nucdivs_df,aes(x = time/60))+geom_smooth(aes(y = diversity))+geom_point(aes(y = diversity))
 
-library("ggpubr")
+#library("ggpubr")
 
 
 
-ggplot(nucdivs_df,aes(blibN, diversity))+geom_point()
-plot(nucdivs_df$blibN, nucdivs_df$diversity)
-mod <- lm(diversity~blibN, data = nucdivs_df)
-abline(mod, col = "red")
-plot(mod)
+
 
 cor(nucdivs_df$blibN,nucdivs_df$diversity)
 cor.test(nucdivs_df$diversity,as.numeric(nucdivs_df$blibN))
 
 
-ggplot(nucdivs_g,aes(x = time, y = value, colour = variable))+geom_point(size = 0.01)+geom_smooth(span = 0.1)
 
-ggplot(nucdivs_df,aes(blibN,diversity))+geom_smooth(span = 0.2)
 
-firstGroup <- blib_unique%>%filter(sampleGroup == 0)
-firstGroupA_string <- DNAStringSet(firstGroup$testA)
-firstGroupB_string <- DNAStringSet(firstGroup$testB)
+ggplot(nucdivs_df,aes(blibN,diversity))+geom_smooth()+geom_point()
+
+#firstGroup <- blib_unique%>%filter(sampleGroup == 0)
+#firstGroupA_string <- DNAStringSet(firstGroup$testA)
+#firstGroupB_string <- DNAStringSet(firstGroup$testB)
 
 
 sampleA <- DNAStringSet(blib_sample$testA)
