@@ -28,7 +28,15 @@ rm(list = ls())
 
 {
   popData <- read_csv("Pop_data.csv")
-  blib_raw <- read_csv("blib_sats.csv")%>%select(time,name, sampleGroup, sample_number, testA, testB) 
+  
+  
+  blib_raw <- bind_rows(lapply(list.files(pattern = "blib_sats*"), read.csv))
+
+  
+ 
+ 
+ 
+  blib_raw <- blib_raw%>%select(time,name, sampleGroup, sample_number, testA, testB) 
   
   blib_raw$name <- as.numeric(gsub("blib",'',blib_raw$name))
   
@@ -41,63 +49,101 @@ rm(list = ls())
   
   sum(duplicated(blib_raw$name))
   sum(duplicated(blib_unique$name))
-  rm(blib_raw)
   
-  blib_sample <- blib_unique%>%group_by(sampleGroup)%>%slice_sample(n = 5)
+  
+  blib_sample <- blib_unique%>%group_by(sampleGroup)%>%filter(n() >= 3)%>% slice_sample(n = 5)
+  blib_sample$name <- paste0(
+    blib_sample$sampleGroup, '_',blib_sample$sample_number)
+  
+  rm(blib_raw)
 }
 
-sample_groups_vector <- blib_unique%>%select(sampleGroup)
-sample_groups_vector <- c(sample_groups_vector$sampleGroup)
 
+{
+  sample_groups_vector <- blib_unique%>%select(sampleGroup)
+  sample_groups_vector <- c(sample_groups_vector$sampleGroup)
+  
+  
+  blib_split <- blib_unique%>%select(testA,testB)%>%split( sample_groups_vector)
+  blib_split_list_A <- list()
+  blib_split_list_B <- list()
+  
+  for(i in 0:length(blib_split)){
+    u <- as.character(i-1)
+    blib_split_list_A[i] <- blib_split[[u]][1]
+    blib_split_list_B[i] <- blib_split[[u]][1]
+  }
+  AS <- ( lapply(blib_split_list_A, DNAStringSet))
+  
+  thebin <- lapply(AS, as.DNAbin)
 
-blib_split <- blib_unique%>%select(testA,testB)%>%split( sample_groups_vector)
-blib_split_list_A <- list()
-blib_split_list_B <- list()
+  nucdivs_vector <- sapply(thebin,nuc.div)
+  nucdivs_df <- data.frame(time = seq(from = 50, to = 50*(length(nucdivs_vector)), by = 50),diversity = nucdivs_vector )
+ # nucdivs_df <- nucdivs_df[1:nrow(nucdivs_df)-1,]
+  
+  nucdivs_df <- nucdivs_df%>%mutate(diversity_normalised = (diversity-min(diversity))/(max(diversity)-min(diversity)) )
+  
+  nucdivs_df <- nucdivs_df%>%mutate(blibN = popData%>%select(blibN))
+  nucdivs_df$blibN <- nucdivs_df$blibN$blibN
+  nucdivs_df <- nucdivs_df%>%mutate(blibN_normalised = (blibN-min(blibN))/(max(blibN)-min(blibN)))
+  nucdivs_df <- tibble(nucdivs_df)
+  nucdivs_g <- nucdivs_df%>%select(time,diversity_normalised,blibN_normalised)%>%gather(key = "variable", value = "value", -time)
+  
+  }
 
-for(i in 0:length(blib_split)){
-  u <- as.character(i-1)
-  blib_split_list_A[i] <- blib_split[[u]][1]
-  blib_split_list_B[i] <- blib_split[[u]][1]
-}
-AS <- ( lapply(blib_split_list_A, DNAStringSet))
+plot(nucdivs_df$blibN,nucdivs_df$diversity);abline(lm(diversity~blibN, data = nucdivs_df), col = "red")
+plot(lm(diversity~blibN, data = nucdivs_df))
 
-thebin <- lapply(AS, as.DNAbin)
+ggplot(nucdivs_g,aes(x = time/(60*60), y = value, colour = variable))+geom_line()+geom_point( size = 0.1)
 
-nucdivs_vector <- sapply(thebin,nuc.div)
-nucdivs_df <- data.frame(time = seq(to = max(blib_unique$time), from = 50, by = 50),diversity = nucdivs_vector )
-#nucdivs_df <- nucdivs_df[1:nrow(nucdivs_df)-1,]
-
-nucdivs_df <- nucdivs_df%>%mutate(diversity_normalised = (diversity-min(diversity))/(max(diversity)-min(diversity)) )
-
-nucdivs_df <- nucdivs_df%>%mutate(blibN = popData%>%filter(t %% 50 == 0)%>%select(blibN))
-nucdivs_df <- nucdivs_df%>%mutate(blibN_normalised = (blibN-min(blibN))/(max(blibN)-min(blibN)))
-nucdivs_g <- nucdivs_df%>%select(time,diversity_normalised,blibN_normalised)%>%gather(key = "variable", value = "value", -time)
-
-ggplot(nucdivs_g,aes(x = time, y = value, colour = variable))+geom_point(, size = 0.1)+geom_smooth(span = 0.1)
-
+ggplot(nucdivs_df,aes(x = time))+geom_smooth(aes(y = diversity))
 
 library("ggpubr")
 
 
 
-
+ggplot(nucdivs_df,aes(blibN, diversity))+geom_point()
+plot(nucdivs_df$blibN, nucdivs_df$diversity)
+mod <- lm(diversity~blibN, data = nucdivs_df)
+abline(mod, col = "red")
+plot(mod)
 
 cor(nucdivs_df$blibN,nucdivs_df$diversity)
-cor.test(nucdivs_df$diversity,nucdivs_df$blibN)
+cor.test(nucdivs_df$diversity,as.numeric(nucdivs_df$blibN))
 
 
-ggplot(nucdivs_g,aes(x = time, y = value, colour = variable))+geom_point(, size = 0.1)+geom_smooth(span = 0.1)
+ggplot(nucdivs_g,aes(x = time, y = value, colour = variable))+geom_point(size = 0.01)+geom_smooth(span = 0.1)
 
-ggplot(nucdivs_df,aes(blibN,diversity))+geom_smooth(span = 0.1)
+ggplot(nucdivs_df,aes(blibN,diversity))+geom_smooth(span = 0.2)
 
 firstGroup <- blib_unique%>%filter(sampleGroup == 0)
 firstGroupA_string <- DNAStringSet(firstGroup$testA)
 firstGroupB_string <- DNAStringSet(firstGroup$testB)
 
+
 sampleA <- DNAStringSet(blib_sample$testA)
-names(sampleA) <- paste0("A",blib_sample$sampleGroup,blib_sample$sample_number)
+
+names(sampleA) <- paste0("A","_",blib_sample$name)
+sampleA <- unique(sampleA)
 BrowseSeqs(sampleA, highlight = 0)
 sampleD <- dist.dna(as.DNAbin(sampleA, as.matrix = TRUE), model = "TN93")
+
+
+sampleD.pca <- prcomp(sampleD, scale = TRUE)
+fviz_eig(sampleD.pca)
+
+
+fviz_pca_ind(sampleD.pca,
+             geom = "point",
+             col.ind = "cos2", # Color by the quality of representation
+             gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
+             repel = TRUE     # Avoid text overlapping
+)
+
+temp <- as.data.frame(as.matrix(sampleD))
+
+table.paint(temp, cleg = 0, clabel.row=0.1, clabel.col=0.1)
+
 
 sample_phylo <- bionj(sampleD)
 sample_bin <- as.phyDat(as.DNAbin(sampleA))
@@ -110,7 +156,12 @@ plot(ladderize(rootedsamplephylo), type = "phylogram", show.tip=TRUE, edge.width
 
 names(firstGroupA_string) <- paste0("A",firstGroup$name)
 names(firstGroupB_string) <- paste0("B",firstGroup$name)
-blib_last <- blib_unique%>%filter(sampleGroup >= max(blib_unique$sampleGroup -3))
+
+
+
+
+
+blib_last <- blib_unique%>%filter(sampleGroup >= max(blib_unique$sampleGroup))
 
 blib_last$name <- paste0(blib_last$sampleGroup, '_', blib_last$sample_number)
 
@@ -123,26 +174,55 @@ A_string <- unique(A_string)
 B_string <- unique(B_string)
 
 
+BrowseSeqs(A_string, highlight = 0)
 
 
-blib_unique$sampleGroup <- as.factor(blib_unique$sampleGroup)
 
-testt <- blib_unique %>%
-  group_by(sampleGroup, testA)%>%group_walk(testA,DNAStringSetList)
-  
-
-A_string_full <- DNAStringSet(blib_unique$testA)
-names(A_string_full) <- paste0("A",blib_unique$name)
-
-
-A_bin_full <- as.DNAbin(unique(A_string_full))
-
-segsites <- seg.sites(A_bin_full)
 
 A_bin <- (as.DNAbin(A_string))
+A_phyd <- as.phyDat(A_bin)
 B_bin <- as.DNAbin(B_string)
 AB_bin <- join(A_bin,B_bin)
-nuc.div(A_bin)
+AB_phyd <- as.phyDat(AB_bin)
+nuc.div(AB_bin)
+
+
+Dist_JC=dist.ml(A_phyd,  model = "JC69")
+NJ =NJ(Dist_JC) 
+plot(ladderize(NJ), type = "fan", show.tip=TRUE, edge.width=0.5, cex= 0.3,use.edge.length = TRUE)
+
+
+
+#Calculate likelihood of NJ tree
+ML_START=pml(NJ, A_phyd) 
+
+#Create maximum-likelihood tree from NJ tree
+
+ML_JC=optim.pml(ML_START,model="JC",  optNni = T) #The simple algorithm 
+
+
+
+#root, ladderize and plot maximum-likelihood tree
+
+ML_JC <- ladderize(ML_JC$tree)
+ML_JC <- root(ML_JC,out = "A67_28")
+plot(ML_JC,use.edge.length=T, type ="phylogram", show.tip=TRUE, edge.width=0.5, cex= 0.2) 
+
+#The complex algorithm 
+ML_GTR=optim.pml(ML_START,model="GTR",  optNni = T)  
+
+ML_GTR <- root(ML_GTR$tree,out = "A67_160")
+
+plot(ML_GTR,use.edge.length=T, type ="phylogram", show.tip=TRUE, edge.width=0.5, cex= 0.2) 
+plot(ML_GTR,use.edge.length=F, type ="fan", show.tip=TRUE, edge.width=0.5, cex= 0.2) 
+
+
+
+#Compare ML trees
+
+AIC(ML_JC, ML_GTR)
+
+
 #write.FASTA(A_bin, "A_bin.fasta")
 #write.FASTA(B_bin, "B_bin.fasta")
 
@@ -209,7 +289,7 @@ treAB.ini <- bionj(dist.dna(AB_bin,model="TN93"))
 
 
 
-tre.ini
+treA.ini
 
 parsimony(treA.ini, A_bin2)
 parsimony(treB.ini, B_bin2)
@@ -221,9 +301,9 @@ treAB.pars <- optim.parsimony(treAB.ini, AB_bin2)
 
 
 
-plot(treA.pars, type = "phylogram", show.tip=TRUE, edge.width=0.5, cex= 0.3,use.edge.length = TRUE)
+plot(ladderize(treA.pars), type = "phylogram", show.tip=TRUE, edge.width=0.5, cex= 0.3,use.edge.length = TRUE)
 
-chronA <- chronos(treA.ini, lambda = 1, model = "correlated", quiet = FALSE,
+chronB <- chronos(treB.ini, lambda = 1, model = "correlated", quiet = FALSE,
                    calibration = makeChronosCalib(treA.ini),
                    control = chronos.control())
 plot(chronA, type = "phylogram", show.tip=TRUE, edge.width=0.5, cex= 0.3,use.edge.length = TRUE)
@@ -240,3 +320,32 @@ chroney <- chronos(tre.ini, lambda = 1, model = "correlated", quiet = FALSE,
                    calibration = makeChronosCalib(tre.ini),
                    control = chronos.control())
 plot(chroney)
+
+
+
+#Spicy output code
+{
+  blib_raw$name <- paste0("G_",blib_raw$sampleGroup,"_S_",blib_raw$sample_number)
+  
+  
+  library(Biostrings)
+  library(ape)
+  
+  
+  Haplo_A.dnastring <- DNAStringSet(blib_raw$testA)  
+  Haplo_B.dnastring <- DNAStringSet(blib_raw$testB) 
+  names(Haplo_A.dnastring) <- paste0("Ch_A_", blib_raw$name)
+  names(Haplo_B.dnastring) <- paste0("Ch_B_", blib_raw$name)
+  write.csv(blib_raw,"blib_raw_verylong.csv")
+  rm(blib_raw)
+  Haplo_A.dnabin <- as.DNAbin(Haplo_A.dnastring)
+  Haplo_B.dnabin <- as.DNAbin(Haplo_B.dnastring)
+  
+  
+  
+  
+  Haplos <-insect::join(Haplo_A.dnabin,Haplo_B.dnabin)
+  
+  write.FASTA(Haplo_A.dnabin, "blib_raw_dnabin_chA_verylong.fas")
+  write.FASTA(Haplo_B.dnabin, "blib_raw_dnabin_chB_verylong.fas")
+}
